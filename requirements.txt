@@ -1,0 +1,4 @@
+scrapy>=2.11
+torch>=2.0
+numpy
+tqdm

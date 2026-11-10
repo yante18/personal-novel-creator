@@ -1,0 +1,20 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# scrapy
+*.log
+
+# 数据和模型（不要上传大文件！工程重点）
+data/raw/
+data/processed/corpus_clean.txt
+checkpoints/
+*.pth
+*.bin
+
+# jupyter
+.ipynb_checkpoints
