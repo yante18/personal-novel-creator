@@ -1,110 +1,85 @@
 import json
-import random
-import re
 from collections import Counter
+import re
+import random
 
-CORPUS_PATH = "scrapy01/dp1.txt"
+# 配置
+CORPUS_PATH = "dp1.txt"
 VOCAB_OUT = "vocab.json"
 IDX2CHAR_OUT = "idx2char.json"
 META_OUT = "vocab_meta.json"
-
 MIN_FREQ = 2
-VAL_RATIO = 0.1
 SEED = 42
+# 特殊标记：填充、未知、句子开始、句子结束(EOP)
 SPECIAL_TOKENS = ["<pad>", "<unk>", "<bos>", "<eos>"]
-
 random.seed(SEED)
 
-
 def load_and_clean_corpus(file_path):
-    # 读取语料，逐行清洗：
-    # 1) 去掉首尾空白，空行丢弃
-    # 2) 丢掉 "第N章 xxx" 这种章节标题行，避免标题进词表
-    # 3) 用空格把段落拼起来，段落边界也算作一个可见字符
+    """读取小说文本，清洗：空行、章节标题过滤"""
     with open(file_path, "r", encoding="utf-8") as f:
         all_lines = []
         for line in f:
             line = line.strip()
+            # 跳过空行
             if not line:
                 continue
+            # 跳过章节标题：第x章
             if re.match(r"^第\d+章", line):
                 continue
             all_lines.append(line)
-    full_text = " ".join(all_lines)
+    # 直接拼接，不额外增加空格
+    full_text = "".join(all_lines)
     return full_text
 
-
-def split_train_val(text, val_ratio=0.1):
-    # 字符级切分：把整段文本拆成单字符列表后随机打散，按比例切开
-    # 注意：这里是随机打散，会破坏上下文顺序，只适合先跑通流程
-    # 后续要做小说续写，需改成按章节切分（前 90% 章训练、后 10% 章验证）
-    chars = list(text)
-    random.shuffle(chars)
-    split_pos = int(len(chars) * (1 - val_ratio))
-    train_chars = chars[:split_pos]
-    val_chars = chars[split_pos:]
-    train_text = "".join(train_chars)
-    val_text = "".join(val_chars)
-    return train_text, val_text
-
-
 def build_vocab_from_text(text, min_freq=2):
-    # 只在训练集文本上统计词频（验证集不能参与，否则 OOV 率虚低）
+    """
+    基于全部文本构建字符词表
+    方案A：用全部语料建词表，val集字符不会凭空变成unk
+    """
+    # 统计每个字符出现次数
     counter = Counter(text)
-    # 过滤掉出现次数小于 min_freq 的生僻字，它们统一落到 <unk>
+    # 过滤低频字符，只保留出现次数>=min_freq的字符
     filtered_chars = [char for char, freq in counter.items() if freq >= min_freq]
-    # 按频次降序排列，高频字排前面，id 更小
+    # 按频次降序排序，高频字符id靠前
     filtered_chars.sort(key=lambda x: counter[x], reverse=True)
-
-    # 先放特殊 token，顺序固定，保证每次运行 id 一致
     vocab = {}
+    # 先写入特殊token，固定id顺序
     for token in SPECIAL_TOKENS:
         vocab[token] = len(vocab)
-    # 再按频次把字符依次编码
+    # 再写入普通字符
     for char in filtered_chars:
         vocab[char] = len(vocab)
-
-    # 反向表：id -> 字符，生成文本时解码用
+    # 反向词表：id -> 字符，用于解码
     idx2char = {idx: char for char, idx in vocab.items()}
-    # 元信息落盘，方便事后核对语料规模、词表大小和字符频次
+    # 元信息，记录词表参数和统计信息
     meta = {
-        "total_train_chars": len(text),
+        "total_chars": len(text),
         "vocab_size": len(vocab),
         "min_freq": min_freq,
         "special_tokens": SPECIAL_TOKENS,
-        "char_count": dict(counter),
+        "char_count": dict(counter)
     }
     return vocab, idx2char, meta
 
-
 def text2ids(text, vocab):
-    # 文本转 id；词表里没有的字符统一映射到 <unk>
+    """文本转id，未知字符映射到<unk>"""
     unk_id = vocab["<unk>"]
     ids = [vocab.get(c, unk_id) for c in text]
     return ids
 
-
 def ids2text(ids, idx2char):
-    # id 转回文本，跳过 <pad>，避免还原结果里出现填充符
+    """id还原文本，过滤pad标记"""
     tokens = [idx2char[i] for i in ids if idx2char[i] != "<pad>"]
     return "".join(tokens)
-
 
 if __name__ == "__main__":
     print("加载并清洗语料...")
     full_text = load_and_clean_corpus(CORPUS_PATH)
-    print("语料清洗完成，总字符数(去掉标题)：", len(full_text))
-
-    print("分割训练集和验证集...")
-    train_text, val_text = split_train_val(full_text, VAL_RATIO)
-    print("训练集字符数：", len(train_text))
-    print("验证集字符数：", len(val_text))
-
+    print("语料清洗完成，总字符数(去掉标题）：", len(full_text))
     print("统计词频，构建词典...")
-    vocab, idx2char, meta = build_vocab_from_text(train_text, MIN_FREQ)
+    vocab, idx2char, meta = build_vocab_from_text(full_text, MIN_FREQ)
     print(f"词表大小：{meta['vocab_size']}")
-
-    # 三个 json 都按 utf-8 存储；ensure_ascii=False 让中文原样可读
+    # 保存三份文件
     with open(VOCAB_OUT, "w", encoding="utf-8") as f:
         json.dump(vocab, f, ensure_ascii=False, indent=2)
     with open(IDX2CHAR_OUT, "w", encoding="utf-8") as f:
@@ -112,11 +87,11 @@ if __name__ == "__main__":
     with open(META_OUT, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
     print("词典构建完成，保存到文件中...")
-
-    # 自测：编码后再解码，检查是否能原样还原
+    # 简单测试编解码
     text = "你好，世界！"
     ids = text2ids(text, vocab)
     recover = ids2text(ids, idx2char)
     print(f"测试文本：{text}")
     print(f"转id：{ids[:10]} ...")
     print(f"还原：{recover}")
+
